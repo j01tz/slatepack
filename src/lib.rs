@@ -26,8 +26,8 @@ lazy_static! {
 }
 
 pub struct ArmoredSlate {
-    data: String,
-    is_bin: bool,
+    pub data: String,
+    pub is_bin: bool,
 }
 
 impl ArmoredSlate {
@@ -93,9 +93,9 @@ impl ArmoredSlate {
 }
 
 pub struct SerializedSlate {
-    bin: Vec<u8>,
-    json: String,
-    is_bin: bool,
+    pub bin: Vec<u8>,
+    pub json: String,
+    pub is_bin: bool,
 }
 
 impl SerializedSlate {
