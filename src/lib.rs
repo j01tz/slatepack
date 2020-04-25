@@ -25,59 +25,108 @@ lazy_static! {
     static ref WHITESPACE_LIST: [u8; 5] = [b'>', b'\n', b'\r', b'\t', b' '];
 }
 
-// Takes a slate json string and returns an armored slate string
-pub fn armor(slate: &str) -> Result<String> {
-    // Convert slate string to bytes and base58 encode with an included error check code
-    let encoded_slate = base58check(&slate.as_bytes())?;
-    // Make the armored slate more human readable
-    let formatted_slate = format_slate(&encoded_slate)?;
-    // Combine all parts to form the final armored slate
-    Ok(format!("{}{}{}", HEADER, formatted_slate, FOOTER))
+pub struct ArmoredSlate {
+    data: String,
+    is_bin: bool,
 }
 
-// Takes an armored slate string and returns a slate json string
-pub fn remove_armor(armor: &str) -> Result<String> {
-    // Convert the armored slate to bytes for parsing
-    let armor_bytes: Vec<u8> = armor.as_bytes().to_vec();
-    // Collect the bytes up to the first period, this is the header
-    let header_bytes = &armor_bytes
-        .iter()
-        .take_while(|byte| **byte != b'.')
-        .cloned()
-        .collect::<Vec<u8>>();
-    // Verify the header...
-    check_header(&header_bytes)?;
-    // Get the length of the header
-    let header_len = *&header_bytes.len() + 1;
-    // Skip the length of the header to read for the payload until the next period
-    let payload_bytes = &armor_bytes[header_len as usize..]
-        .iter()
-        .take_while(|byte| **byte != b'.')
-        .cloned()
-        .collect::<Vec<u8>>();
-    // Get length of the payload to check the footer framing
-    let payload_len = *&payload_bytes.len();
-    // Get footer bytes and verify them
-    let consumed_bytes = header_len + payload_len + 1;
-    let footer_bytes = &armor_bytes[consumed_bytes as usize..]
-        .iter()
-        .take_while(|byte| **byte != b'.')
-        .cloned()
-        .collect::<Vec<u8>>();
-    check_footer(&footer_bytes)?;
-    // Clean up the payload bytes to be deserialized
-    let clean_payload = &payload_bytes
-        .iter()
-        .filter(|byte| !WHITESPACE_LIST.contains(byte))
-        .cloned()
-        .collect::<Vec<u8>>();
-    // Decode payload from base58
-    let base_decode = bs58::decode(&clean_payload).into_vec().unwrap();
-    let error_code = &base_decode[0..4];
-    let slate_bytes = &base_decode[4..];
-    // Make sure the error check code is valid for the slate data
-    error_check(&error_code.to_vec(), &slate_bytes.to_vec())?;
-    Ok(str::from_utf8(&slate_bytes).unwrap().to_string())
+impl ArmoredSlate {
+    pub fn new(armored_string: &str, is_bin: bool) -> ArmoredSlate {
+        let armor = ArmoredSlate {
+            data: armored_string.to_string(),
+            is_bin: is_bin,
+        };
+        return armor;
+    }
+
+    pub fn remove_armor(&self) -> Result<SerializedSlate> {
+        // Convert the armored slate to bytes for parsing
+        let armor_bytes: Vec<u8> = self.data.as_bytes().to_vec();
+        // Collect the bytes up to the first period, this is the header
+        let header_bytes = &armor_bytes
+            .iter()
+            .take_while(|byte| **byte != b'.')
+            .cloned()
+            .collect::<Vec<u8>>();
+        // Verify the header...
+        check_header(&header_bytes)?;
+        // Get the length of the header
+        let header_len = *&header_bytes.len() + 1;
+        // Skip the length of the header to read for the payload until the next period
+        let payload_bytes = &armor_bytes[header_len as usize..]
+            .iter()
+            .take_while(|byte| **byte != b'.')
+            .cloned()
+            .collect::<Vec<u8>>();
+        // Get length of the payload to check the footer framing
+        let payload_len = *&payload_bytes.len();
+        // Get footer bytes and verify them
+        let consumed_bytes = header_len + payload_len + 1;
+        let footer_bytes = &armor_bytes[consumed_bytes as usize..]
+            .iter()
+            .take_while(|byte| **byte != b'.')
+            .cloned()
+            .collect::<Vec<u8>>();
+        check_footer(&footer_bytes)?;
+        // Clean up the payload bytes to be deserialized
+        let clean_payload = &payload_bytes
+            .iter()
+            .filter(|byte| !WHITESPACE_LIST.contains(byte))
+            .cloned()
+            .collect::<Vec<u8>>();
+        // Decode payload from base58
+        let base_decode = bs58::decode(&clean_payload).into_vec().unwrap();
+        let error_code = &base_decode[0..4];
+        let slate_bytes = &base_decode[4..];
+        // Make sure the error check code is valid for the slate data
+        error_check(&error_code.to_vec(), &slate_bytes.to_vec())?;
+        // Return slate as binary or string
+        let mut return_slate = SerializedSlate::new();
+        if self.is_bin == true {
+            return_slate.bin = slate_bytes.to_vec();
+            return_slate.is_bin = true;
+        } else {
+            return_slate.json = str::from_utf8(slate_bytes).unwrap().to_string();
+        }
+        Ok(return_slate)
+    }
+}
+
+pub struct SerializedSlate {
+    bin: Vec<u8>,
+    json: String,
+    is_bin: bool,
+}
+
+impl SerializedSlate {
+    pub fn new() -> SerializedSlate {
+        let new_slate = SerializedSlate {
+            bin: Vec::new(),
+            json: String::new(),
+            is_bin: false,
+        };
+        return new_slate;
+    }
+
+    pub fn armor(&self) -> Result<ArmoredSlate> {
+        if self.is_bin == true {
+            let encoded_slate = base58check(&self.bin)?;
+            let formatted_slate = format_slate(&encoded_slate)?;
+            let armored_slate = ArmoredSlate {
+                data: format!("{}{}{}", HEADER, formatted_slate, FOOTER),
+                is_bin: true,
+            };
+            Ok(armored_slate)
+        } else {
+            let encoded_slate = base58check(&self.json.as_bytes())?;
+            let formatted_slate = format_slate(&encoded_slate)?;
+            let armored_slate = ArmoredSlate {
+                data: format!("{}{}{}", HEADER, formatted_slate, FOOTER),
+                is_bin: true,
+            };
+            Ok(armored_slate)
+        }
+    }
 }
 
 // Takes an error check code and a slate binary and verifies that the code was generated from slate
